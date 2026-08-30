@@ -100,9 +100,52 @@ it, so using it would silently produce blanks on the other six.
 
 ## Outputs
 
+### The five quantities, and the column each one is
+
+Everything below is in `outputs/pems_cbi_link_period.csv`, keyed by
+(`corridor`, `link_id`, `period`).
+
+| quantity | column | unit | what it is |
+|---|---|---|---|
+| **CBI** — the identified congestion episode | `t0_hhmm`, `T2_hhmm`, `t3_hhmm`, `window_type`, `congestion_source` | clock / label | which link-periods carry a congestion episode at all, when it runs, and whether the period owns the episode or only receives its spillover. Non-blank on 269 of the 1 388 link-periods; every episode including the ones not selected is in `pems_episodes.csv`. |
+| **D** | `D_counts` / `D_speed` | veh | vehicles accumulated over the **below-cutoff bins** of the period |
+| **V** | `V_counts` / `V_speed` | veh | vehicles accumulated over **every bin** of the period |
+| **P** | `P_h` | hours | episode duration, `T3 − T0` |
+| **T2** | `T2_hhmm` | clock | the minute of lowest speed in the episode |
+
+`_counts` is summed from the measured PeMS flow; `_speed` from flow inferred
+from speed alone. `D_err` and `V_err` are the percentage gap between the two.
+
+Supporting columns on the same row: `v_t2_mph` and `severity` (how deep the
+trough is), `mu_vph` and `mu_over_C` (discharge rate), `DC_hours` (D over
+capacity, in hours), and the per-link constants `free_speed_mph`,
+`cutoff_mph`, `capacity_vph` that all of the above are measured against.
+
+### One row, read out
+
+`D12_I5_S / L5S-185 / PM` — a 5-lane, 0.19-mile link in the Orange County
+I-5 southbound PM peak:
+
+```
+free_speed_mph   72.18     cutoff_mph  50.52     capacity_vph  7453
+t0_hhmm  15:45   T2_hhmm  17:20   t3_hhmm  18:25   P_h  2.67
+v_t2_mph  26.45  severity  0.48   window_type  normal
+mu_vph  6689     mu_over_C  0.90  DC_hours  2.48
+                                measured      speed-inferred     gap
+D  (32 of 48 bins below cutoff)   18 501            18 692      +1.0 %
+V  (all 48 bins)                  27 965            28 363      +1.4 %
+```
+
+Read as: congestion set in at 15:45, bottomed out at 17:20 at 26 mph, and
+cleared by 18:25 — 2.67 hours. 18 501 vehicles passed while it was congested,
+out of 27 965 over the whole PM period. Inferring flow from speed alone would
+have put those at 18 692 and 28 363.
+
+### Files
+
 | file | rows | contents |
 |---|---:|---|
-| `outputs/pems_cbi_link_period.csv` | 1 388 | the main table, one row per link × period |
+| `outputs/pems_cbi_link_period.csv` | 1 388 | the table above, one row per link × period, 34 columns |
 | `outputs/pems_episodes.csv` | 282 | one row per episode, before the one-per-period selection |
 | `outputs/pems_cbi_summary.json` | – | error scores by period and by corridor |
 | `outputs/d_v_vs_counts.png` | – | the figure above |
