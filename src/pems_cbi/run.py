@@ -2,6 +2,7 @@
 
     python -m pems_cbi.run profiles --package <TrafficFlowBench corridors dir>
     python -m pems_cbi.run table
+    python -m pems_cbi.run figure
 
 `profiles` reads the raw parquet package and writes the two files in data/.
 `table` reads only those two files, so it runs on a fresh clone.
@@ -15,7 +16,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import analysis, profiles
+from . import analysis, figures, profiles
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "data"
@@ -46,6 +47,9 @@ def parse_args() -> argparse.Namespace:
                     help="how capacity_vph is defined; see DATA_DICTIONARY.md")
     p2.add_argument("--vf-source", default="profile", choices=["profile", "daily"],
                     help="how free_speed_mph is defined; see DATA_DICTIONARY.md")
+
+    p3 = sub.add_parser("figure", help="D and V, speed-inferred against measured")
+    p3.add_argument("--output-dir", type=Path, default=OUTPUTS)
     return parser.parse_args()
 
 
@@ -57,6 +61,12 @@ def main() -> None:
         profile_path, meta_path = profiles.build(
             args.package, args.corridors, months, args.min_observations, args.data_dir)
         print(f"\nWrote {profile_path}\n      {meta_path}")
+        return
+
+    if args.stage == "figure":
+        table = pd.read_csv(args.output_dir / "pems_cbi_link_period.csv")
+        path = figures.build(table, args.output_dir / "d_v_vs_counts.png")
+        print(f"Wrote {path}")
         return
 
     profile = pd.read_csv(args.data_dir / "pems_average_weekday_5min.csv.gz")

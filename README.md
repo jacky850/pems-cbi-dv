@@ -25,6 +25,15 @@ the size of the gap.
 D errors are computed on the 511 link-periods that contain below-cutoff bins;
 V errors on all 1 388.
 
+![D and V, speed-inferred against measured](outputs/d_v_vs_counts.png)
+
+Pooled across all four periods the figure reads D 13.1 % and V 23.0 %; the
+pooled V figure is dominated by NT, which is 347 of its 1 388 points and the
+only period where the estimate breaks down. Night speeds sit close to free
+flow, and that is the branch of the S3 curve where a small speed difference
+maps to a large flow difference. D is unaffected because it only ever sums
+bins below the cutoff.
+
 ---
 
 ## Install
@@ -33,7 +42,7 @@ V errors on all 1 388.
 pip install -r requirements.txt
 ```
 
-Requires `numpy`, `pandas`, `pyarrow`. Python 3.11+.
+Requires `numpy`, `pandas`, `pyarrow`, `matplotlib`. Python 3.11+.
 
 ## Run
 
@@ -45,6 +54,12 @@ python -m pems_cbi.run table
 ```
 
 writes `outputs/`. Roughly two seconds.
+
+```bash
+python -m pems_cbi.run figure
+```
+
+redraws `outputs/d_v_vs_counts.png` from the table.
 
 ```bash
 python -m pems_cbi.run profiles --package <.../kaggle_release/corridors>
@@ -90,6 +105,7 @@ it, so using it would silently produce blanks on the other six.
 | `outputs/pems_cbi_link_period.csv` | 1 388 | the main table, one row per link × period |
 | `outputs/pems_episodes.csv` | 282 | one row per episode, before the one-per-period selection |
 | `outputs/pems_cbi_summary.json` | – | error scores by period and by corridor |
+| `outputs/d_v_vs_counts.png` | – | the figure above |
 
 Column-by-column definitions, with units and the exact computation, are in
 [DATA_DICTIONARY.md](DATA_DICTIONARY.md).
@@ -185,6 +201,7 @@ src/pems_cbi/
     config.py      every constant that defines a quantity
     profiles.py    stage 1: raw parquet -> average-weekday profile + link meta
     analysis.py    stage 2: S3 inversion, episodes, the link x period table
+    figures.py     the D and V scatter
     run.py         CLI
 data/              stage 1 output, stage 2 input (committed)
 outputs/           stage 2 output (committed)
