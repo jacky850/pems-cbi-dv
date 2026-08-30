@@ -1,0 +1,191 @@
+# pems-cbi-dv
+
+Congestion episodes and period demand from freeway detector data: **D, V, P and
+T2** per link per period, on ten California PeMS corridor-directions.
+
+PeMS measures speed **and** flow at the same detector. That makes it the place
+where a speed-only estimate can be checked, because both sides of the
+comparison exist:
+
+* **`_counts`** — D and V summed from the measured flow.
+* **`_speed`** — D and V summed from flow inferred from speed alone, through
+  the S3 fundamental diagram.
+
+An INRIX/TMC corridor only ever supports the second. Running both here gives
+the size of the gap.
+
+| period | D MAPE | V MAPE |
+|---|---:|---:|
+| AM | 11.6 % | 8.7 % |
+| MD | 13.2 % | 11.7 % |
+| PM | 12.6 % | 11.5 % |
+| NT | 16.1 % | 60.1 % |
+
+347 links, 1 388 link-periods, 269 episodes, October 2025 average weekday.
+D errors are computed on the 511 link-periods that contain below-cutoff bins;
+V errors on all 1 388.
+
+---
+
+## Install
+
+```bash
+pip install -r requirements.txt
+```
+
+Requires `numpy`, `pandas`, `pyarrow`. Python 3.11+.
+
+## Run
+
+Two stages. **The second one is all you need on a fresh clone** — its inputs
+are committed.
+
+```bash
+python -m pems_cbi.run table
+```
+
+writes `outputs/`. Roughly two seconds.
+
+```bash
+python -m pems_cbi.run profiles --package <.../kaggle_release/corridors>
+```
+
+rebuilds `data/` from the raw parquet package. Roughly 90 seconds for one
+month across all ten corridors; only needed to change the month, the corridor
+set, or the observation filter.
+
+Run from the repository root with `src` on the path:
+
+```bash
+PYTHONPATH=src python -m pems_cbi.run table
+```
+
+---
+
+## Inputs
+
+### Committed (1.1 MB, everything stage 2 needs)
+
+| file | rows | contents |
+|---|---:|---|
+| `data/pems_average_weekday_5min.csv.gz` | 99 985 | `corridor, link_id, minute, speed_mph, flow_vph, n` — one average-weekday 24-hour profile per link at 5-minute resolution |
+| `data/pems_link_meta.csv` | 378 | lanes, length, declared network capacity, and the raw-reading percentiles, per link (378 links pass stage 1; 347 of them also clear the 200-bin profile requirement in stage 2) |
+
+### Not committed (needed only for stage 1)
+
+The TrafficFlowBench five-corridor package, `data_public/kaggle_release/corridors/`:
+
+* `<corridor>/train/mainline_states/year_month=YYYY-MM/*.parquet` — daily
+  5-minute speed and flow, 2025-06 through 2026-02, ~680 MB in total
+* `<corridor>/network/lwr_mainline_topology.csv` — lanes, length, link
+  ordering, declared capacity
+
+`fd_parameters.csv` is deliberately not read: only the four D12 corridors ship
+it, so using it would silently produce blanks on the other six.
+
+## Outputs
+
+| file | rows | contents |
+|---|---:|---|
+| `outputs/pems_cbi_link_period.csv` | 1 388 | the main table, one row per link × period |
+| `outputs/pems_episodes.csv` | 282 | one row per episode, before the one-per-period selection |
+| `outputs/pems_cbi_summary.json` | – | error scores by period and by corridor |
+
+Column-by-column definitions, with units and the exact computation, are in
+[DATA_DICTIONARY.md](DATA_DICTIONARY.md).
+
+---
+
+## The chain
+
+```
+raw 5-min speed + flow
+  └─ keep is_score_eligible == 1        at least 75 % real lane samples
+  └─ weekdays only, average per 5-min-of-day bin
+        │
+        ├─ v_f      = p95  of the speed profile
+        ├─ C        = p99.5 of the flow profile
+        ├─ cutoff   = 0.70 × v_f
+        │
+        ├─ episodes = runs of speed < cutoff lasting ≥ 30 min
+        │             └─ T0, T2, T3, P = T3 − T0, v_t2, mu
+        │
+        └─ q̂        = S3 inversion of speed, scaled by C
+                      └─ D = Σ q̂ over below-cutoff bins
+                         V = Σ q̂ over all bins in the period
+                         (and the same two sums over measured flow)
+```
+
+Four periods cover the full day: AM 06–09, MD 09–15, PM 15–19, NT 19–06.
+
+An episode belongs to the period holding its **T2**. Its below-cutoff bins are
+counted wherever they fall, so a period can carry a non-zero D without holding
+an episode; the `congestion_source` column distinguishes the two cases rather
+than leaving blank geometry to be read as missing data.
+
+---
+
+## Corridors
+
+`D7` is Caltrans District 7 (Los Angeles), `D12` is District 12 (Orange
+County). "Links" counts those surviving the score-eligibility filter, out of
+the detector-bearing mainline links in each corridor.
+
+| corridor | links | miles | D MAPE |
+|---|---:|---:|---:|
+| D12_I5_N | 83 of 93 | 26.2 | 21.0 % |
+| D12_I5_S | 88 of 100 | 25.9 | 14.6 % |
+| D7_I210_W | 34 of 81 | 11.1 | 12.5 % |
+| D7_I210_E | 30 of 75 | 8.5 | 8.2 % |
+| D7_I10_W | 31 of 107 | 8.6 | 15.0 % |
+| D7_I10_E | 26 of 101 | 7.4 | 6.0 % |
+| D12_I405_N | 20 of 50 | 14.6 | 10.2 % |
+| D12_I405_S | 13 of 44 | 13.4 | 17.9 % |
+| D7_I405_N | 11 of 96 | 2.9 | 11.2 % |
+| D7_I405_S | 11 of 109 | 3.4 | 14.6 % |
+| **total** | **347 of 856** | **122** | |
+
+Coverage varies widely. I-5 keeps close to 90 % of its detector links and 26
+continuous miles in each direction; `D7_I405_N/S` keep about a tenth of theirs
+and under 3.5 miles, so those two are a sample of links rather than a
+continuous corridor.
+
+## Episode counts
+
+| `window_type` | episodes | |
+|---|---:|---|
+| `normal` | 229 | P ≤ 6 h |
+| `long` | 33 | 6 h < P ≤ 8 h |
+| `allday_below_cutoff` | 7 | P > 8 h |
+
+| `congestion_source` | link-periods |
+|---|---:|
+| `none` | 877 |
+| `own_episode` | 269 |
+| `spillover_from_PM` | 135 |
+| `spillover_from_AM` | 88 |
+| `spillover_from_MD` | 9 |
+| `spillover_from_AM+PM` | 9 |
+| `spillover_from_NT` | 1 |
+
+## Options
+
+| flag | default | effect |
+|---|---|---|
+| `--months` | `2025-10` | which `year_month` partitions to average; `all` spans 2025-06…2026-02 and raises the per-bin sample from 23 to 175 weekdays |
+| `--capacity-source` | `profile` | `profile`, `daily` or `network`; see DATA_DICTIONARY.md |
+| `--vf-source` | `profile` | `profile` or `daily` |
+| `--corridors` | all ten | restrict stage 1 |
+| `--min-observations` | `10` | score-eligible weekday observations a link-bin needs to be kept |
+
+## Layout
+
+```
+src/pems_cbi/
+    config.py      every constant that defines a quantity
+    profiles.py    stage 1: raw parquet -> average-weekday profile + link meta
+    analysis.py    stage 2: S3 inversion, episodes, the link x period table
+    run.py         CLI
+data/              stage 1 output, stage 2 input (committed)
+outputs/           stage 2 output (committed)
+```

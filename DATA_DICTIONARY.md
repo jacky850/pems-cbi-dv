@@ -1,0 +1,187 @@
+# Data dictionary
+
+Every column, its unit, and exactly how it is computed. Where a definition
+involves a choice, the choice is named.
+
+The key of the main table is **(`corridor`, `link_id`, `period`)**. `link_id`
+alone is not unique: 32 link ids occur in two different corridors, because the
+D7 and D12 packages number their links independently.
+
+---
+
+## Conventions that apply throughout
+
+**Average weekday.** Every quantity is read off one 24-hour profile per link,
+not off individual days. The profile is the mean over all score-eligible
+weekday observations in the selected months, taken separately in each
+5-minute-of-day bin. With the default `--months 2025-10` that is 23 weekdays.
+Weekends are excluded.
+
+**Score-eligible.** Only raw rows with `is_score_eligible == 1` enter the
+average. In this package that flag is exactly `pct_observed >= 75`: at least
+three quarters of the underlying lane samples in the 5-minute bin are real
+rather than filled. Roughly 44 % of rows qualify. The columns `is_observed` and
+`is_missing` are constant across the entire package (1 and 0 on every row) and
+therefore select nothing.
+
+**Full cross-section.** `flow_vph`, and so `D`, `V`, `C` and `mu`, are totals
+across all lanes, not per-lane values. `capacity_vphpl` is the only per-lane
+column.
+
+**Periods.** Four, covering the full day, in local time:
+
+| period | window | hours |
+|---|---|---|
+| AM | 06:00–09:00 | 3 |
+| MD | 09:00–15:00 | 6 |
+| PM | 15:00–19:00 | 4 |
+| NT | 19:00–06:00 (wraps midnight) | 11 |
+
+---
+
+## Per-link constants
+
+These four are computed once per link and repeated on each of its period rows.
+
+| column | unit | definition |
+|---|---|---|
+| `free_speed_mph` | mph | 95th percentile of the link's **averaged weekday speed profile**. Selectable with `--vf-source`; `daily` instead takes the 95th percentile of the raw 5-minute weekday readings (median 71.1 vs 69.6 mph). |
+| `capacity_vph` | veh/h | 99.5th percentile of the link's **averaged weekday flow profile** — average first, then take the percentile. Selectable with `--capacity-source`. |
+| `capacity_vphpl` | veh/h/lane | `capacity_vph / lanes`. |
+| `cutoff_mph` | mph | `0.70 × free_speed_mph`. The threshold that defines congestion. |
+| `speed_at_capacity_mph` | mph | `free_speed_mph × 2^(-2/m)` with `m = 4`, i.e. `free_speed_mph / √2`. Written `v_c`. |
+
+### The three capacity definitions
+
+`capacity_vph` takes whichever of these `--capacity-source` names, and the
+other two are still written to the table so the choice is visible and any row
+can be rescaled by hand.
+
+| source | column | median veh/h/lane | how |
+|---|---|---|---|
+| `profile` *(default)* | `capacity_alt_profile_p995_vph` | 1329 | 99.5th percentile of the averaged weekday flow profile |
+| `daily` | `capacity_alt_daily_p995_vph` | 1567 | 99.5th percentile of the raw 5-minute weekday flows |
+| `network` | `capacity_alt_network_vph` | 2000 | the package's declared link capacity, a flat 2000 veh/h/lane on all 347 links |
+
+The `profile` and `daily` figures differ because averaging happens before the
+percentile in one and after it in the other: each weekday reaches its own
+maximum at a slightly different minute, so averaging first spreads one day's
+peak across its neighbours' lower values.
+
+Whichever source is selected is used consistently in three places: `k_c` in the
+S3 inversion, the denominator of `DC_hours`, and the denominator of
+`mu_over_C`. `capacity_source` records which one produced the run.
+
+---
+
+## Identity and geometry
+
+| column | unit | definition |
+|---|---|---|
+| `corridor` | – | corridor-direction directory name, e.g. `D12_I5_N`. `D7` = Caltrans District 7 (Los Angeles), `D12` = District 12 (Orange County). |
+| `link_id` | – | link id within that corridor. Not unique across corridors. |
+| `period` | – | AM / MD / PM / NT as tabulated above. |
+| `lanes` | count | from `network/lwr_mainline_topology.csv`. |
+| `length_mi` | miles | `length_km × 0.621371` from the same file. |
+| `bins` | count | 5-minute bins of the profile falling in this period. |
+| `bins_below_cutoff` | count | of those, how many are inside a sustained below-cutoff run. |
+| `weekdays_averaged` | count | distinct weekday dates contributing to this link's profile. |
+
+---
+
+## Episode geometry
+
+An **episode** is a run of consecutive profile bins with
+`speed < cutoff_mph`, lasting at least 30 minutes. Runs shorter than that are
+not episodes. Runs are found on the linear 00:00–23:55 array, so a run
+straddling midnight is split into two.
+
+An episode is assigned to the period containing its **T2**. Where a link has
+more than one episode in a period, the table carries the longest, ties broken
+by the deeper trough. Every episode, including the ones not carried, is in
+`pems_episodes.csv`.
+
+| column | unit | definition |
+|---|---|---|
+| `t0_hhmm` | clock | start of the first congested bin of the episode. |
+| `T2_hhmm` | clock | the minute of lowest speed within the episode. |
+| `t3_hhmm` | clock | end of the last congested bin, i.e. its start plus 5 minutes. |
+| `P_h` | hours | `T3 − T0`, equivalently (number of bins) × 5 minutes. |
+| `v_t2_mph` | mph | the speed at T2. |
+| `severity` | – | `1 − v_t2_mph / speed_at_capacity_mph`. 0 when the trough only touches `v_c`; approaches 1 as the link stops. |
+| `mu_vph` | veh/h | median measured flow over the bins from T2 to T3 inclusive. Blank when that span is a single bin. |
+| `mu_over_C` | – | `mu_vph / capacity_vph`, with `capacity_vph` as defined above. |
+| `window_type` | – | `normal` (P ≤ 6 h), `long` (6 < P ≤ 8 h), `allday_below_cutoff` (P > 8 h). |
+
+Blank episode columns mean this period holds no episode of its own; see
+`congestion_source`.
+
+| `congestion_source` | meaning |
+|---|---|
+| `own_episode` | the period holds an episode; the geometry columns describe it. |
+| `spillover_from_XX` | the period has below-cutoff bins, and so a non-zero `D`, but the episode covering them has its T2 in period XX. The geometry columns are blank by design, not missing. |
+| `none` | no below-cutoff bins in this period. |
+
+---
+
+## D and V
+
+Both are vehicle counts obtained by summing a flow series over a set of bins
+and multiplying by the bin length (5/60 h). They differ only in which bins:
+
+- **V** sums **every** bin in the period.
+- **D** sums only the bins inside a sustained below-cutoff run.
+
+Each is computed twice from the same bins, once from each flow series:
+
+- `_counts` uses the measured flow from the profile.
+- `_speed` uses flow inferred from speed alone through the S3 fundamental diagram.
+
+| column | unit | definition |
+|---|---|---|
+| `V_counts` | veh | `Σ(all bins in period) flow_vph × 5/60` |
+| `V_speed` | veh | `Σ(all bins in period) q̂ × 5/60` |
+| `D_counts` | veh | `Σ(below-cutoff bins in period) flow_vph × 5/60` |
+| `D_speed` | veh | `Σ(below-cutoff bins in period) q̂ × 5/60` |
+| `V_err` | % | `(V_speed − V_counts) / V_counts × 100` |
+| `D_err` | % | same for D. Blank when the period has no below-cutoff bins. |
+| `DC_hours` | **hours** | `D_counts / capacity_vph`. Vehicles divided by an hourly rate, so the result is a duration: 4.9 means about 4.9 hours of work at capacity. This is not the dimensionless HCM v/c. |
+
+### The S3 inversion, `q̂`
+
+```
+v_c = v_f × 2^(-2/m)                        m = 4
+k_c = C / v_c
+k   = k_c × ((v_f / v)^(m/2) − 1)^(1/m)     density from speed
+q̂   = min(k × v, C)                         flow, capped at C
+```
+
+`q̂(v)` is single-valued but not monotone: it rises from zero at `v = v_f`,
+peaks at `v = v_c` where `q̂ = C`, and falls back towards zero as `v → 0`.
+
+---
+
+## `pems_episodes.csv`
+
+One row per episode, before the one-per-period selection. Keyed by
+(`corridor`, `link_id`, `t0_min`). Carries `t0_min`, `T2_min`, `t3_min` in
+minutes past midnight, plus `P_h`, `v_t2_mph`, `mu_vph`, `mu_over_C`, `period`,
+`bins`, `window_type`, and:
+
+| column | definition |
+|---|---|
+| `i0`, `i1` | half-open bin index range of the run within the 288-bin profile. |
+| `touches_edge` | true when the run starts at bin 0 or ends at bin 287, i.e. it may be one half of an episode split by midnight. |
+
+## `data/pems_link_meta.csv`
+
+Written by stage 1, read by stage 2. One row per (`corridor`, `link_id`):
+`lanes`, `length_mi`, `order_index` and `detector_id` from
+`lwr_mainline_topology.csv`; `network_capacity_vph`; `daily_p995_flow_vph` and
+`daily_p95_speed_mph` (the raw-reading percentiles); `weekdays_averaged` and
+`raw_observations`.
+
+## `data/pems_average_weekday_5min.csv.gz`
+
+One row per (`corridor`, `link_id`, `minute`): `speed_mph`, `flow_vph`, and `n`
+= the number of score-eligible weekday observations averaged into that bin.
