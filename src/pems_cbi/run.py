@@ -77,12 +77,24 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     table.to_csv(args.output_dir / "pems_cbi_link_period.csv", index=False)
     episodes.to_csv(args.output_dir / "pems_episodes.csv", index=False)
-    summary = analysis.summarise(table)
+    summary = analysis.summarise(table, episodes)
     (args.output_dir / "pems_cbi_summary.json").write_text(
         json.dumps(summary, indent=2), encoding="utf-8")
 
-    print(f"{summary['links']} links, {summary['rows']} link-periods, "
-          f"{summary['episodes']} episodes")
+    inventory = summary["inventory"]
+    print(f"{inventory['corridors']} corridors, {inventory['links']} links, "
+          f"{inventory['link_periods']} link-periods, {len(episodes)} episodes")
+    print(f"  link-periods: {inventory['link_periods_with_an_episode']} with an episode, "
+          f"{inventory['link_periods_with_spillover_only']} spillover only, "
+          f"{inventory['link_periods_uncongested']} uncongested")
+    print(f"  scored: D on {inventory['rows_scored_for_D']} rows "
+          f"({inventory['rows_excluded_from_D']} excluded as uncongested), "
+          f"V on {inventory['rows_scored_for_V']}")
+    if "episodes_detail" in summary:
+        detail = summary["episodes_detail"]
+        print(f"  episodes: {detail['carried_into_the_table']} carried, "
+              f"{detail['not_carried']} not carried, "
+              f"{detail['wrapping_midnight']} wrapping midnight")
     print(f"\n{'period':<8}{'D n':>6}{'D MAPE':>9}{'V n':>6}{'V MAPE':>9}")
     for p, s in summary["by_period"].items():
         d, v = s["D"], s["V"]

@@ -1,3 +1,8 @@
 __pycache__/
 *.pyc
 .venv/
+
+# Build artefacts from `pip install -e .`
+*.egg-info/
+build/
+dist/

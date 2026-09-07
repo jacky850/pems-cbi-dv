@@ -1,0 +1,7 @@
+# The working tree picked up CRLF on every tracked text file, which showed as
+# seven modified files with no real change and would hide a genuine diff.
+# Normalise on the way into the index; leave the working tree alone.
+* text=auto eol=lf
+
+*.png binary
+*.gz binary

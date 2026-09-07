@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pems-cbi-dv"
+version = "0.3.0"
+description = "D, V, P and T2 per link and period on PeMS corridor-directions, counted and speed-inferred"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "pyarrow>=12.0",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[project.scripts]
+pems-cbi = "pems_cbi.run:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+# `src` so the tests import pems_cbi from a plain checkout, without the caller
+# having to export PYTHONPATH. An editable install also works and takes
+# precedence; this is the fallback that makes `pytest -q` work from a fresh
+# clone. `.` so tests can reach scripts/.
+pythonpath = ["src", "."]
+testpaths = ["tests"]
