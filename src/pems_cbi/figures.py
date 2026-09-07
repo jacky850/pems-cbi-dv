@@ -75,10 +75,13 @@ def build(table: pd.DataFrame, out_path: Path) -> Path:
     """Two panels: D over the congested bins, V over the whole period."""
     fig, axes = plt.subplots(1, 2, figsize=(11.6, 6.4))
 
+    # Canonical column names. The legacy D_/V_ aliases still exist in v0.3 but
+    # are removed in v0.4, and nothing new should reach for them.
     d = table[table["D_err"].notna()]
-    _panel(axes[0], d, "D_counts", "D_speed", "D",
+    _panel(axes[0], d, "congested_passed_volume_counts_veh",
+           "congested_passed_volume_speed_veh", "D",
            "below-cutoff bins only", _note(d, "D_err"))
-    _panel(axes[1], table, "V_counts", "V_speed", "V",
+    _panel(axes[1], table, "period_volume_counts_veh", "period_volume_speed_veh", "V",
            "every bin of the period", _note(table, "V_err"))
 
     weekdays = int(table["weekdays_averaged"].median())

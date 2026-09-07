@@ -1,8 +1,21 @@
 {
+  "schema_version": "0.3",
   "rows": 1388,
   "links": 347,
   "episodes": 269,
   "capacity_source": "profile",
+  "inventory": {
+    "corridors": 10,
+    "links": 347,
+    "link_periods": 1388,
+    "link_periods_with_an_episode": 269,
+    "link_periods_with_spillover_only": 242,
+    "link_periods_uncongested": 877,
+    "rows_scored_for_D": 511,
+    "rows_excluded_from_D": 877,
+    "rows_scored_for_V": 1388,
+    "note": "D is scored only where the period has below-cutoff bins. Excluded rows are uncongested, not missing."
+  },
   "by_period": {
     "AM": {
       "D": {
@@ -104,5 +117,23 @@
       "mape_pct": 14.6,
       "median_bias_pct": 13.4
     }
+  },
+  "episodes_detail": {
+    "total": 282,
+    "carried_into_the_table": 269,
+    "not_carried": 13,
+    "wrapping_midnight": 0,
+    "by_window_type": {
+      "normal": 242,
+      "long": 33,
+      "allday_below_cutoff": 7
+    },
+    "by_period": {
+      "AM": 136,
+      "PM": 131,
+      "MD": 13,
+      "NT": 2
+    },
+    "note": "A run below cutoff at both 23:55 and 00:00 is stitched into one episode before the 30-minute minimum is applied, so it is not reported as two short ones or dropped."
   }
 }

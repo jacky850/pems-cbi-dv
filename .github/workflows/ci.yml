@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      # The clean-install path from REPRODUCE.md. If this needs PYTHONPATH set
+      # by hand, the packaging is broken and the acceptance criterion is not met.
+      - name: Install
+        run: |
+          python -m pip install -U pip
+          python -m pip install -e ".[test]"
+
+      - name: Import without PYTHONPATH
+        run: cd /tmp && python -c "import pems_cbi, pems_cbi.analysis; print(pems_cbi.__file__)"
+
+      - name: Unit tests
+        run: pytest -q
+
+      # Regenerates the committed table from data/, which is in the repository.
+      - name: Rebuild the table and the figure
+        run: |
+          python -m pems_cbi.run table
+          python -m pems_cbi.run figure
+
+      # Schema and physical checks on the artefacts a reader downloads.
+      - name: Validate outputs
+        run: python scripts/validate_outputs.py
+
+      # Regeneration should be close to a no-op. Reported, not failed: these are
+      # floating-point CSVs written on a different platform from the one that
+      # produced the committed copies. test_cli_smoke.py is the substantive
+      # check — it compares every numeric column to 1e-9.
+      - name: Report any drift in the regenerated outputs
+        run: |
+          if git diff --quiet -- outputs; then
+            echo "regeneration was a no-op"
+          else
+            echo "::notice::outputs changed; confirm this is float noise, not a result change"
+            git diff --stat -- outputs
+          fi

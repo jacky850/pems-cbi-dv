@@ -7,6 +7,57 @@ The key of the main table is **(`corridor`, `link_id`, `period`)**. `link_id`
 alone is not unique: 32 link ids occur in two different corridors, because the
 D7 and D12 packages number their links independently.
 
+Schema version **0.3**, written into every row and into the summary JSON. This
+document maps every column to the canonical cross-repository contract in
+[`I405--FDQ-dashboard/docs/VARIABLE_CONTRACT.md`](https://github.com/jacky850/I405--FDQ-dashboard/blob/main/docs/VARIABLE_CONTRACT.md).
+Where the two disagree, the contract wins and this file is the defect.
+
+---
+
+## Read this before using `D_counts`, `D_speed` or `DC_hours`
+
+```
+D_counts and D_speed are congested-bin passed volumes in vehicles.
+They are not the rate-based demand D in D/C.
+DC_hours is congested passed volume divided by hourly capacity and has units of
+hours. It is not a dimensionless D/C ratio.
+```
+
+Those three names were chosen before the cross-repository contract existed and
+they say the wrong thing. **They are legacy aliases as of v0.3 and are removed in
+v0.4.** Both names carry identical values in this release; `tests/test_units.py`
+fails if they ever diverge.
+
+| Legacy name | Canonical name | Unit | Evidence layer |
+|---|---|---|---|
+| `D_counts` | `congested_passed_volume_counts_veh` | veh | `A_OBSERVED` |
+| `D_speed` | `congested_passed_volume_speed_veh` | veh | `B_RECOVERED` |
+| `DC_hours` | `capacity_equivalent_hours_counts` | **h** | `A_OBSERVED` |
+| `V_counts` | `period_volume_counts_veh` | veh | `A_OBSERVED` |
+| `V_speed` | `period_volume_speed_veh` | veh | `B_RECOVERED` |
+
+### Evidence layers
+
+Every quantity here is one of two layers. The distinction is not cosmetic: one is
+measured and one is a model output, and they must never be reported as the same
+kind of thing.
+
+| Layer | Column | Meaning |
+|---|---|---|
+| `A_OBSERVED` | `counts_evidence_layer` | detector counts. `flow_vph` and everything summed from it. |
+| `B_RECOVERED` | `speed_evidence_layer` | inferred from speed through the S3 fundamental diagram. **Not observed**, however good the fit. |
+
+Layers `C_ASSIGNED_BASELINE` and `D_FINAL_DNL` exist in the contract but nothing
+in this repository produces them.
+
+### What is *not* in this repository
+
+The contract's rate-based quantities — `peak_demand_rate_D_vph`,
+`demand_modifier_kd`, `dc_rate`, `effective_discharge_mu_vph`,
+`capacity_retention_kmu` — are computed in `I405--FDQ-dashboard`, not here. The
+one overlap is `mu_vph` / `mu_over_C`, which are this repository's measured
+discharge rate and retention and do match the contract's definitions.
+
 ---
 
 ## Conventions that apply throughout
@@ -93,8 +144,18 @@ S3 inversion, the denominator of `DC_hours`, and the denominator of
 
 An **episode** is a run of consecutive profile bins with
 `speed < cutoff_mph`, lasting at least 30 minutes. Runs shorter than that are
-not episodes. Runs are found on the linear 00:00–23:55 array, so a run
-straddling midnight is split into two.
+not episodes.
+
+**The profile is a 24-hour cycle, not a line.** A link still below cutoff at
+23:55 and again at 00:00 is in one episode, and the two halves are stitched
+**before** the 30-minute minimum is applied. Order matters: splitting first can
+leave two halves each under 30 minutes, so a genuine multi-hour night episode
+disappears entirely rather than being reported as two short ones. `v0.2` split
+them; `v0.3` does not.
+
+On the current dataset **no episode wraps midnight**, so this changes no
+published number. It is a latent defect fixed and tested rather than a
+correction to the results.
 
 An episode is assigned to the period containing its **T2**. Where a link has
 more than one episode in a period, the table carries the longest, ties broken
@@ -137,15 +198,18 @@ Each is computed twice from the same bins, once from each flow series:
 - `_counts` uses the measured flow from the profile.
 - `_speed` uses flow inferred from speed alone through the S3 fundamental diagram.
 
-| column | unit | definition |
-|---|---|---|
-| `V_counts` | veh | `Σ(all bins in period) flow_vph × 5/60` |
-| `V_speed` | veh | `Σ(all bins in period) q̂ × 5/60` |
-| `D_counts` | veh | `Σ(below-cutoff bins in period) flow_vph × 5/60` |
-| `D_speed` | veh | `Σ(below-cutoff bins in period) q̂ × 5/60` |
-| `V_err` | % | `(V_speed − V_counts) / V_counts × 100` |
-| `D_err` | % | same for D. Blank when the period has no below-cutoff bins. |
-| `DC_hours` | **hours** | `D_counts / capacity_vph`. Vehicles divided by an hourly rate, so the result is a duration: 4.9 means about 4.9 hours of work at capacity. This is not the dimensionless HCM v/c. |
+| canonical column | legacy alias | unit | definition |
+|---|---|---|---|
+| `period_volume_counts_veh` | `V_counts` | veh | `Σ(all bins in period) flow_vph × 5/60` |
+| `period_volume_speed_veh` | `V_speed` | veh | `Σ(all bins in period) q̂ × 5/60` |
+| `congested_passed_volume_counts_veh` | `D_counts` | veh | `Σ(below-cutoff bins in period) flow_vph × 5/60` |
+| `congested_passed_volume_speed_veh` | `D_speed` | veh | `Σ(below-cutoff bins in period) q̂ × 5/60` |
+| `capacity_equivalent_hours_counts` | `DC_hours` | **hours** | `congested_passed_volume_counts_veh / capacity_vph`. Vehicles divided by an hourly rate, so the result is a duration: 4.9 means about 4.9 hours of work at capacity. **Not** the dimensionless HCM v/c, and not the contract's `dc_rate`. |
+| `V_err` | – | % | `(period_volume_speed_veh − period_volume_counts_veh) / period_volume_counts_veh × 100` |
+| `D_err` | – | % | same for the congested volume. Blank when the period has no below-cutoff bins — an abstention, not a missing value. |
+| `counts_evidence_layer` | – | – | `A_OBSERVED` on every row. |
+| `speed_evidence_layer` | – | – | `B_RECOVERED` on every row. |
+| `schema_version` | – | – | `0.3`. |
 
 ### The S3 inversion, `q̂`
 
@@ -170,8 +234,13 @@ minutes past midnight, plus `P_h`, `v_t2_mph`, `mu_vph`, `mu_over_C`, `period`,
 
 | column | definition |
 |---|---|
-| `i0`, `i1` | half-open bin index range of the run within the 288-bin profile. |
-| `touches_edge` | true when the run starts at bin 0 or ends at bin 287, i.e. it may be one half of an episode split by midnight. |
+| `i0`, `i1` | half-open bin index range of the run. For an episode crossing midnight `i1` exceeds 288; index it modulo 288, which is what `run_indices` does. |
+| `wraps_midnight` | true when the episode crosses 00:00. `t0_min` is then later in the clock than `t3_min`, which is what a night episode looks like. |
+| `touches_edge` | legacy alias, removed in v0.4. In v0.2 it flagged a record that might be half a split episode; now a wrapping run is one record, so it simply marks episodes reaching either end of the day. |
+
+`t0_min`, `T2_min` and `t3_min` are always clock times in `[0, 1440)`. For a
+wrapping episode read them as "starts at `t0_min`, troughs at `T2_min`, ends at
+`t3_min` the next morning"; `P_h` carries the true duration.
 
 ## `data/pems_link_meta.csv`
 

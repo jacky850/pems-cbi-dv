@@ -21,9 +21,21 @@ the size of the gap.
 | PM | 12.6 % | 11.5 % |
 | NT | 16.1 % | 60.1 % |
 
-347 links, 1 388 link-periods, 269 episodes, October 2025 average weekday.
-D errors are computed on the 511 link-periods that contain below-cutoff bins;
-V errors on all 1 388.
+10 corridors, 347 links, 1 388 link-periods, October 2025 average weekday.
+**282 episodes** are detected; **269** are carried into the table, one per
+link-period, and the other 13 are second episodes in a period that already has a
+longer one. Every one of the 282 is in `outputs/pems_episodes.csv`.
+
+D errors are computed on the **511** link-periods that contain below-cutoff
+bins; the other **877** are uncongested and abstain rather than score. V errors
+are computed on all 1 388.
+
+**Column names, units and evidence layers** follow the cross-repository contract
+in [`I405--FDQ-dashboard/docs/VARIABLE_CONTRACT.md`](https://github.com/jacky850/I405--FDQ-dashboard/blob/main/docs/VARIABLE_CONTRACT.md).
+`D_counts`, `D_speed` and `DC_hours` are **legacy aliases** as of v0.3 — see
+[`DATA_DICTIONARY.md`](DATA_DICTIONARY.md), which explains what each of them
+actually is and is not. To reproduce everything below from a clean clone, see
+[`REPRODUCE.md`](REPRODUCE.md).
 
 ![D and V, speed-inferred against measured](outputs/d_v_vs_counts.png)
 
